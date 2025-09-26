@@ -18,7 +18,7 @@
 
 ```
 git add .
-git commit -m "实验1代码提交"
+git commit -m "张三实验1文件提交"
 git push origin main
 ```
 
