@@ -1,0 +1,299 @@
+<link rel="stylesheet" href="https://unpkg.com/x-data-spreadsheet@1.1.5/dist/xspreadsheet.css" />
+<script src="https://unpkg.com/x-data-spreadsheet@1.1.5/dist/xspreadsheet.js"></script>
+<script src="https://unpkg.com/x-data-spreadsheet@1.1.9/dist/locale/zh-cn.js"></script>
+<script src="https://d3js.org/d3.v6.js"></script>
+
+<div id="xspreadsheet">
+  <input type="checkbox" class="checkbox" value="barchart" /><label>barchart</label>
+  <input type="checkbox" class="checkbox" value="piechart" /><label>piechart</label>
+</div>
+<div id="my_dataviz"></div>
+
+<style>
+#xspreadsheet {
+  width: 400px;
+  height: 500px;
+  padding: 0px;
+  margin: 0px;
+}
+#my_dataviz {
+  width: 1000px;
+  height: 900px;
+  padding: 0px;
+  margin: 0px;
+}
+.ticktext {
+  font-size: 20;
+  stroke: black;
+  stroke-width: 0.05em;
+}
+.pie-label {
+  font-size: 12px;
+  fill: #333;
+  text-anchor: middle;
+}
+.legend-container {
+  margin-top: 20px;
+}
+</style>
+
+<script>
+x_spreadsheet.locale("zh-cn");
+var xs = x_spreadsheet("#xspreadsheet", {
+  mode: 'edit', // edit | read
+  showToolbar: true,
+  showGrid: true,
+  showContextmenu: true,
+  view: {
+    height: () => document.documentElement.clientHeight,
+    width: () => document.documentElement.clientWidth,
+  },
+  row: {
+    len: 15,
+    height: 25,
+  },
+  col: {
+    len: 8,
+    width: 100,
+    indexWidth: 60,
+    minWidth: 60,
+  },
+  style: {
+    bgcolor: '#ffffff',
+    align: 'left',
+    valign: 'middle',
+    textwrap: false,
+    strike: false,
+    underline: false,
+    color: '#0a0a0a',
+    font: {
+      name: 'Helvetica',
+      size: 10,
+      bold: false,
+      italic: false,
+    },
+  },
+})
+
+xs.on('cell-edited', update)
+xs.cellText(0, 1, "计算机").cellText(0, 2, "法学").reRender();
+xs.cellText(1, 0, "2017").cellText(1, 1, "23").cellText(1, 2, "15").reRender();
+xs.cellText(2, 0, "2018").cellText(2, 1, "36").cellText(2, 2, "26").reRender();
+xs.cellText(3, 0, "2019").cellText(3, 1, "23").cellText(3, 2, "33").reRender();
+xs.cellText(4, 0, "2020").cellText(4, 1, "22").cellText(4, 2, "10").reRender();
+
+function getColor(idx) {
+  var palette = [
+    '#5ab1ef', '#ffb980', '#d87a80', '#2ec7c9', '#b6a2de',
+    '#8d98b3', '#e5cf0d', '#97b552', '#95706d', '#dc69aa',
+    '#07a2a4', '#9a7fd1', '#588dd5', '#f5994e', '#c05050',
+    '#59678c', '#c9ab00', '#7eb00a', '#6f5553', '#c14089'
+  ]
+  return palette[idx % palette.length];
+}
+
+function update() {
+  const barChecked = d3.select('.checkbox[value="barchart"]').property("checked");
+  const pieChecked = d3.select('.checkbox[value="piechart"]').property("checked");
+
+  d3.selectAll('svg').remove();
+
+  if (!barChecked && !pieChecked) return;
+
+  var data = [];
+  var ytitle = []; 
+  var xtitle = []; 
+  var rows = 0;
+  var cols = 0;
+
+  for (let i = 1; i < 20; i++) {
+    if (!xs.cell(i, 0) || !xs.cell(i, 0).text) {
+      rows = i;
+      break;
+    }
+    ytitle.push(xs.cell(i, 0).text);
+  }
+
+  for (let i = 1; i < 20; i++) {
+    if (!xs.cell(0, i) || !xs.cell(0, i).text) {
+      cols = i;
+      break;
+    }
+    xtitle.push(xs.cell(0, i).text);
+  }
+
+  for (let i = 1; i < rows; i++) {
+    data.push([]);
+    for (let j = 1; j < cols; j++) {
+      const cell = xs.cell(i, j);
+      if (!cell || !cell.text || isNaN(+cell.text)) {
+        console.error(`无效数据：行${i}列${j}`);
+        return;
+      }
+      data[i - 1][j - 1] = +cell.text;
+    }
+  }
+
+  if (barChecked) {
+    drawBarChart(data, xtitle, ytitle);
+  }
+
+  if (pieChecked) {
+    drawPieCharts(data, xtitle, ytitle);
+  }
+}
+
+function drawBarChart(data, xtitle, ytitle) {
+  const margin = { top: 40, right: 30, bottom: 40, left: 50 };
+  const width = 600 - margin.left - margin.right;
+  const height = 500 - margin.top - margin.bottom;
+
+  const svg = d3.select("#my_dataviz")
+    .append("svg")
+    .attr("width", width + margin.left + margin.right + 100)
+    .attr("height", height + margin.top + margin.bottom)
+    .append("g")
+    .attr("transform", `translate(${margin.left}, ${margin.top})`);
+
+  const maxValue = d3.max(data, row => d3.max(row));
+  const chartData = ytitle.map((year, i) => {
+    const row = { group: year };
+    xtitle.forEach((major, j) => row[major] = data[i][j]);
+    return row;
+  });
+
+  const x = d3.scaleBand()
+    .domain(ytitle)
+    .range([0, width])
+    .padding(0.2);
+  svg.append("g")
+    .attr("transform", `translate(0, ${height})`)
+    .call(d3.axisBottom(x).tickSizeOuter(0));
+
+  const y = d3.scaleLinear()
+    .domain([0, maxValue])
+    .range([height, 0])
+    .nice();
+  svg.append("g").call(d3.axisLeft(y));
+
+  const xSubgroup = d3.scaleBand()
+    .domain(xtitle)
+    .range([0, x.bandwidth()])
+    .padding(0.05);
+
+  svg.append("g")
+    .selectAll("g")
+    .data(chartData)
+    .join("g")
+    .attr("transform", d => `translate(${x(d.group)}, 0)`)
+    .selectAll("rect")
+    .data(d => xtitle.map(key => ({ key, value: d[key] })))
+    .join("rect")
+    .attr("x", d => xSubgroup(d.key))
+    .attr("y", d => y(d.value))
+    .attr("width", xSubgroup.bandwidth())
+    .attr("height", d => height - y(d.value))
+    .attr("fill", (d, i) => getColor(i));
+
+  svg.append("g")
+    .selectAll("g")
+    .data(chartData)
+    .join("g")
+    .attr("transform", d => `translate(${x(d.group)}, 0)`)
+    .selectAll("text")
+    .data(d => xtitle.map(key => ({ key, value: d[key] })))
+    .join("text")
+    .attr("x", d => xSubgroup(d.key) + xSubgroup.bandwidth() / 2)
+    .attr("y", d => y(d.value) - 10)
+    .text(d => d.value)
+    .attr("text-anchor", "middle")
+    .attr("font-size", "12px");
+
+  const legend = svg.append("g")
+    .selectAll(".legend")
+    .data(xtitle.map((name, i) => ({ name, color: getColor(i) })))
+    .join("g")
+    .attr("class", "legend")
+    .attr("transform", (d, i) => `translate(30, ${i * 20 + 120})`);
+
+  legend.append("rect")
+    .attr("x", width - 25)
+    .attr("y", 8)
+    .attr("width", 40)
+    .attr("height", 5)
+    .style("fill", d => d.color);
+
+  legend.append("text")
+    .attr("x", width + 20)
+    .attr("y", 15)
+    .style("text-anchor", "end")
+    .text(d => d.name);
+}
+
+function drawPieCharts(data, xtitle, ytitle) {
+  const pieSize = 200; 
+  const margin = { top: 40, right: 60, bottom: 40, left: 60 };
+  const chartsPerRow = 3; 
+  const gap = 40;
+
+  const totalWidth = (pieSize + margin.left + margin.right) * Math.min(chartsPerRow, xtitle.length) - gap;
+  const totalHeight = Math.ceil(xtitle.length / chartsPerRow) * (pieSize + margin.top + margin.bottom);
+
+  const svgContainer = d3.select("#my_dataviz")
+    .append("svg")
+    .attr("width", totalWidth)
+    .attr("height", totalHeight);
+
+  xtitle.forEach((major, colIndex) => {
+    const pieData = ytitle.map((year, rowIndex) => ({
+      name: year, 
+      value: data[rowIndex][colIndex], 
+      color: getColor(rowIndex) 
+    }));
+
+    const row = Math.floor(colIndex / chartsPerRow);
+    const col = colIndex % chartsPerRow;
+    const xOffset = col * (pieSize + margin.left + margin.right) + margin.left;
+    const yOffset = row * (pieSize + margin.top + margin.bottom) + margin.top;
+
+    const pieGroup = svgContainer.append("g")
+      .attr("transform", `translate(${xOffset + pieSize/2}, ${yOffset + pieSize/2})`);
+
+    pieGroup.append("text")
+      .attr("class", "pie-title")
+      .attr("y", -pieSize/2 - 10)
+      .attr("font-size", "14px")
+      .attr("font-weight", "bold")
+      .text(major);
+
+    const pie = d3.pie()
+      .value(d => d.value)
+      .sort(null); 
+
+    const arc = d3.arc()
+      .innerRadius(0) 
+      .outerRadius(pieSize / 2); 
+
+    pieGroup.selectAll("path")
+      .data(pie(pieData))
+      .join("path")
+      .attr("d", arc)
+      .attr("fill", d => d.data.color)
+      .attr("stroke", "#fff") 
+      .attr("stroke-width", 1);
+
+    const labelArc = d3.arc()
+      .innerRadius(pieSize / 4) 
+      .outerRadius(pieSize / 2);
+
+    pieGroup.selectAll("text.pie-sector-label")
+      .data(pie(pieData))
+      .join("text")
+      .attr("class", "pie-label")
+      .attr("transform", d => `translate(${labelArc.centroid(d)})`)
+      .text(d => `${d.data.name}: ${d.data.value}`);
+  });
+}
+
+d3.selectAll(".checkbox").on("change", update);
+</script>
