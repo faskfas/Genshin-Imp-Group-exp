@@ -31,3 +31,7 @@ git push origin main
 ## 实验2：数据质量实践
 - 本次实验主要围绕宝可梦数据集进行分析，考察在拿到数据后如何对现有的数据进行预处理清洗操作，建立起对于脏数据、缺失数据等异常情况的一套完整流程的认识。
   - 实验日期：2025.9.26
+
+ ## 实验3：电子表格实践I
+- Add a new vis function based on the open source spreadsheet 
+  - 实验日期：2025.10.10
