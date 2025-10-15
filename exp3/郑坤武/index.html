@@ -1,0 +1,428 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>x-spreadsheet + D3 可视化（美化版）</title>
+
+  <!-- x-data-spreadsheet 样式 -->
+  <link rel="stylesheet" href="https://unpkg.com/x-data-spreadsheet@1.1.5/dist/xspreadsheet.css" />
+
+  <style>
+    :root{
+      --bg:#f6f8fb;
+      --card:#ffffff;
+      --border:rgba(0,0,0,0.12);
+      --muted:#6b7280;
+    }
+    html, body { height:100%; }
+    body {
+      margin:0;
+      font-family: system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial;
+      background: var(--bg);
+      color:#111827;
+    }
+
+    /* 顶部栏 */
+    .header {
+      height:56px;
+      display:flex; align-items:center; justify-content:space-between;
+      padding: 0 16px;
+      background: var(--card);
+      border-bottom:1px solid var(--border);
+      position:sticky; top:0; z-index:10;
+    }
+    .title { font-weight:600; }
+    .sub { color: var(--muted); font-size:13px; }
+
+    /* 主体两列布局 */
+    .wrap {
+      height: calc(100vh - 56px);
+      display: grid;
+      grid-template-columns: minmax(360px, 34vw) 1fr;
+      gap: 16px;
+      padding: 16px;
+      box-sizing: border-box;
+    }
+
+    /* 左侧：表格卡片 */
+    .card {
+      background: var(--card);
+      border:1px solid var(--border);
+      border-radius: 12px;
+      box-shadow: 0 1px 2px rgba(0,0,0,0.04);
+      display:flex;
+      flex-direction:column;
+      overflow:hidden;
+    }
+    .card-header {
+      padding:10px 12px;
+      border-bottom:1px solid var(--border);
+      display:flex; align-items:center; justify-content:space-between;
+      gap:8px;
+      background: linear-gradient(180deg, #fff, #fff9);
+      backdrop-filter: saturate(130%);
+    }
+    .controls {
+      display:flex; align-items:center; gap:12px; flex-wrap:wrap;
+    }
+    .controls label {
+      display:inline-flex; align-items:center; gap:6px;
+      font-size:13px; color:#111827; background:#f9fafb; border:1px solid var(--border);
+      padding:6px 10px; border-radius: 999px; cursor:pointer;
+      transition: .15s background;
+    }
+    .controls input[type="checkbox"]{ transform: translateY(1px); }
+    .help { color: var(--muted); font-size:12px; }
+
+    .sheet { flex:1; min-height: 360px; }
+    #xspreadsheet { width:100%; height:100%; }
+
+    /* 右侧：可视化卡片 */
+    .viz {
+      background: var(--card);
+      border:1px solid var(--border);
+      border-radius: 12px;
+      box-shadow: 0 1px 2px rgba(0,0,0,0.04);
+      padding: 12px;
+      display:flex; flex-direction:column; overflow:auto;
+    }
+    .viz-grid{
+      display:grid; grid-template-columns: 1fr; gap: 12px;
+      align-content:start;
+    }
+    .viz-block{
+      height: 420px;
+      border:1px dashed var(--border);
+      border-radius: 10px;
+      padding: 8px;
+      position:relative;
+      background:#fff;
+    }
+    .viz-title{
+      position:absolute; top:8px; left:10px;
+      margin:0; font-size:13px; color: var(--muted);
+      background:#fff; padding:2px 6px; border-radius:6px; border:1px solid var(--border);
+    }
+
+    /* 小屏适配：改为上下布局 */
+    @media (max-width: 960px){
+      .wrap { grid-template-columns: 1fr; height:auto; }
+      .viz-block{ height: 360px; }
+    }
+  </style>
+</head>
+<body>
+  <header class="header">
+    <div>
+      <div class="title">x-spreadsheet × D3 可视化</div>
+      <div class="sub">编辑左侧表格 → 右侧自动联动更新</div>
+    </div>
+  </header>
+
+  <main class="wrap">
+    <!-- 左侧：表格 -->
+    <section class="card">
+      <div class="card-header">
+        <div class="help"></div>
+        <div class="controls">
+          <label><input id="chk-grouped" type="checkbox" class="checkbox" value="grouped" /> 分组柱状图</label>
+          <label><input id="chk-stacked" type="checkbox" class="checkbox" value="stacked" /> 堆叠柱状图</label>
+          <label><input id="chk-line" type="checkbox" class="checkbox" value="line" /> 折线图</label>
+        </div>
+      </div>
+      <div class="sheet">
+        <div id="xspreadsheet"></div>
+      </div>
+    </section>
+
+    <!-- 右侧：可视化 -->
+    <section class="viz">
+      <div id="my_dataviz" class="viz-grid"></div>
+    </section>
+  </main>
+
+  <!-- x-data-spreadsheet 与中文本地化 -->
+  <script src="https://unpkg.com/x-data-spreadsheet@1.1.5/dist/xspreadsheet.js"></script>
+  <script src="https://unpkg.com/x-data-spreadsheet@1.1.9/dist/locale/zh-cn.js"></script>
+  <!-- D3 v6 -->
+  <script src="https://d3js.org/d3.v6.js"></script>
+
+  <script>
+    /* ========== 初始化表格 ========== */
+    x_spreadsheet.locale('zh-cn');
+    const xs = x_spreadsheet('#xspreadsheet', {
+      mode:'edit', showToolbar:true, showGrid:true, showContextmenu:true,
+      view: {
+        height: () => document.getElementById('xspreadsheet').clientHeight,
+        width:  () => document.getElementById('xspreadsheet').clientWidth,
+      },
+      row: { len: 40, height: 25 },
+      col: { len: 16, width: 100, indexWidth: 60, minWidth: 60 },
+      style: {
+        bgcolor:'#fff', align:'left', valign:'middle', textwrap:false,
+        strike:false, underline:false, color:'#0a0a0a',
+        font:{ name:'Helvetica', size:10, bold:false, italic:false }
+      }
+    });
+
+    // 初始示例数据
+    xs.cellText(0, 1, '计算机').cellText(0, 2, '法学').reRender();
+    xs.cellText(1, 0, '2017').cellText(1, 1, '23').cellText(1, 2, '15').reRender();
+    xs.cellText(2, 0, '2018').cellText(2, 1, '36').cellText(2, 2, '26').reRender();
+    xs.cellText(3, 0, '2019').cellText(3, 1, '23').cellText(3, 2, '33').reRender();
+    xs.cellText(4, 0, '2020').cellText(4, 1, '22').cellText(4, 2, '10').reRender();
+
+    /* ========== 工具函数 ========== */
+    function getColor(i){
+      const palette = [
+        '#5ab1ef', '#ffb980', '#d87a80', '#2ec7c9', '#b6a2de',
+        '#8d98b3', '#e5cf0d', '#97b552', '#95706d', '#dc69aa',
+        '#07a2a4', '#9a7fd1', '#588dd5', '#f5994e', '#c05050',
+        '#59678c', '#c9ab00', '#7eb00a', '#6f5553', '#c14089'
+      ];
+      return palette[i % palette.length];
+    }
+
+    function readTable(){
+      const xTitles = [], yTitles = [], values = [];
+      // 第一列 yTitles
+      let r = 1;
+      for (; r < 500; r++){
+        const c = xs.cell(r, 0);
+        const t = c && c.text != null ? String(c.text).trim() : '';
+        if (!t) break;
+        yTitles.push(t);
+      }
+      const rows = r;
+
+      // 第一行 xTitles
+      let cidx = 1;
+      for(; cidx < 500; cidx++){
+        const c0 = xs.cell(0, cidx);
+        const t0 = c0 && c0.text != null ? String(c0.text).trim() : '';
+        if (!t0) break;
+        xTitles.push(t0);
+      }
+      const cols = cidx;
+
+      // 数值
+      for(let i=1;i<rows;i++){
+        const row=[];
+        for(let j=1;j<cols;j++){
+          const cc = xs.cell(i,j);
+          const txt = cc && cc.text != null ? String(cc.text).trim() : '';
+          if (txt === '' || isNaN(+txt)) throw new Error(`第 ${i} 行 第 ${j} 列 不是数值`);
+          row.push(+txt);
+        }
+        values.push(row);
+      }
+      return { xTitles, yTitles, values };
+    }
+
+    /* ========== 渲染函数们 ========== */
+    function renderGroupedBar(dataset, mountEl){
+      const { xTitles, yTitles, values } = dataset;
+      const data = yTitles.map((g, gi) => {
+        const obj = { group: g };
+        xTitles.forEach((k, kj) => obj[k] = values[gi][kj]);
+        return obj;
+      });
+      const maxVal = Math.max(0, ...values.flat());
+
+      const margin = { top: 32, right: 120, bottom: 36, left: 48 };
+      const vizEl = mountEl;
+      const width  = Math.max(320, vizEl.clientWidth  - margin.left - margin.right);
+      const height = Math.max(260, vizEl.clientHeight - margin.top  - margin.bottom);
+
+      const svg = d3.select(vizEl).append('svg')
+        .attr('width',  width + margin.left + margin.right)
+        .attr('height', height + margin.top  + margin.bottom)
+        .attr('viewBox', `0 0 ${width + margin.left + margin.right} ${height + margin.top + margin.bottom}`)
+        .append('g').attr('transform', `translate(${margin.left},${margin.top})`);
+
+      const x = d3.scaleBand().domain(yTitles).range([0, width]).padding(0.2);
+      const y = d3.scaleLinear().domain([0, maxVal]).nice().range([height, 0]);
+      const xSub = d3.scaleBand().domain(xTitles).range([0, x.bandwidth()]).padding(0.05);
+
+      svg.append('g').attr('transform', `translate(0,${height})`).call(d3.axisBottom(x));
+      svg.append('g').call(d3.axisLeft(y));
+
+      const gBars = svg.append('g')
+        .selectAll('g').data(data).join('g')
+        .attr('transform', d => `translate(${x(d.group)},0)`);
+
+      gBars.selectAll('rect')
+        .data(d => xTitles.map(k => ({ key:k, value:d[k] })))
+        .join('rect')
+        .attr('x', d => xSub(d.key))
+        .attr('y', d => y(d.value))
+        .attr('width',  xSub.bandwidth())
+        .attr('height', d => height - y(d.value))
+        .attr('fill', (d,i)=>getColor(i));
+
+      // 数值标签（空间足够时显示）
+      const showLabel = x.bandwidth() > 32;
+      if (showLabel){
+        gBars.selectAll('text')
+          .data(d => xTitles.map(k => ({ key:k, value:d[k] })))
+          .join('text')
+          .attr('x', d => xSub(d.key) + xSub.bandwidth()/2)
+          .attr('y', d => y(d.value) - 6)
+          .attr('text-anchor', 'middle')
+          .style('font-size', '12px')
+          .text(d => d.value);
+      }
+
+      // 图例
+      const legendData = xTitles.map((n,i)=>({ name:n, color:getColor(i) }));
+      const legend = svg.selectAll('.legend')
+        .data(legendData)
+        .enter().append('g')
+        .attr('class','legend')
+        .attr('transform', (d,i)=>`translate(${width + 10}, ${i*22})`);
+      legend.append('rect').attr('width',18).attr('height',12).attr('y',-10).style('fill',d=>d.color);
+      legend.append('text').attr('x',24).attr('y',0).attr('dominant-baseline','middle').text(d=>d.name);
+    }
+
+    function renderStackedBar(dataset, mountEl){
+      const { xTitles, yTitles, values } = dataset;
+      const data = yTitles.map((g, gi) => {
+        const obj = { group: g };
+        xTitles.forEach((k, kj) => obj[k] = values[gi][kj]);
+        return obj;
+      });
+
+      const margin = { top: 32, right: 120, bottom: 36, left: 48 };
+      const vizEl = mountEl;
+      const width  = Math.max(320, vizEl.clientWidth  - margin.left - margin.right);
+      const height = Math.max(260, vizEl.clientHeight - margin.top  - margin.bottom);
+
+      const svg = d3.select(vizEl).append('svg')
+        .attr('width',  width + margin.left + margin.right)
+        .attr('height', height + margin.top  + margin.bottom)
+        .attr('viewBox', `0 0 ${width + margin.left + margin.right} ${height + margin.top + margin.bottom}`)
+        .append('g').attr('transform', `translate(${margin.left},${margin.top})`);
+
+      const x = d3.scaleBand().domain(yTitles).range([0, width]).padding(0.2);
+      svg.append('g').attr('transform', `translate(0,${height})`).call(d3.axisBottom(x));
+
+      const stack = d3.stack().keys(xTitles)(data);
+      const maxY  = d3.max(stack, s => d3.max(s, d => d[1]));
+      const y = d3.scaleLinear().domain([0, maxY]).nice().range([height, 0]);
+      svg.append('g').call(d3.axisLeft(y));
+
+      const color = d3.scaleOrdinal().domain(xTitles).range(xTitles.map((_,i)=>getColor(i)));
+      svg.selectAll('g.layer')
+        .data(stack)
+        .join('g').attr('class','layer').attr('fill', d=>color(d.key))
+        .selectAll('rect')
+        .data(d => d)
+        .join('rect')
+        .attr('x', d => x(d.data.group))
+        .attr('y', d => y(d[1]))
+        .attr('height', d => y(d[0]) - y(d[1]))
+        .attr('width', x.bandwidth());
+
+      const legendData = xTitles.map((n,i)=>({name:n,color:getColor(i)}));
+      const legend = svg.selectAll('.legend')
+        .data(legendData)
+        .enter().append('g')
+        .attr('class','legend')
+        .attr('transform', (d,i)=>`translate(${width + 10}, ${i*22})`);
+      legend.append('rect').attr('width',18).attr('height',12).attr('y',-10).style('fill',d=>d.color);
+      legend.append('text').attr('x',24).attr('y',0).attr('dominant-baseline','middle').text(d=>d.name);
+    }
+
+    function renderLine(dataset, mountEl){
+      const { xTitles, yTitles, values } = dataset;
+
+      const margin = { top: 32, right: 120, bottom: 36, left: 48 };
+      const vizEl = mountEl;
+      const width  = Math.max(320, vizEl.clientWidth  - margin.left - margin.right);
+      const height = Math.max(260, vizEl.clientHeight - margin.top  - margin.bottom);
+
+      const svg = d3.select(vizEl).append('svg')
+        .attr('width',  width + margin.left + margin.right)
+        .attr('height', height + margin.top  + margin.bottom)
+        .attr('viewBox', `0 0 ${width + margin.left + margin.right} ${height + margin.top + margin.bottom}`)
+        .append('g').attr('transform', `translate(${margin.left},${margin.top})`);
+
+      const x = d3.scalePoint().domain(yTitles).range([0, width]).padding(0.5);
+      const y = d3.scaleLinear().domain([0, d3.max(values.flat())]).nice().range([height, 0]);
+
+      svg.append('g').attr('transform', `translate(0,${height})`).call(d3.axisBottom(x));
+      svg.append('g').call(d3.axisLeft(y));
+
+      const color = d3.scaleOrdinal().domain(xTitles).range(xTitles.map((_,i)=>getColor(i)));
+
+      xTitles.forEach((series, si)=>{
+        const lineData = yTitles.map((g, gi)=>({x:g, y: values[gi][si]}));
+        const line = d3.line().x(d=>x(d.x)).y(d=>y(d.y));
+        svg.append('path')
+          .datum(lineData)
+          .attr('fill','none')
+          .attr('stroke', color(series))
+          .attr('stroke-width', 2)
+          .attr('d', line);
+        svg.selectAll(`.pt-${si}`)
+          .data(lineData)
+          .join('circle')
+          .attr('cx', d=>x(d.x))
+          .attr('cy', d=>y(d.y))
+          .attr('r', 3)
+          .attr('fill', color(series));
+      });
+
+      const legendData = xTitles.map((n,i)=>({name:n,color:getColor(i)}));
+      const legend = svg.selectAll('.legend')
+        .data(legendData)
+        .enter().append('g')
+        .attr('class','legend')
+        .attr('transform', (d,i)=>`translate(${width + 10}, ${i*22})`);
+      legend.append('rect').attr('width',18).attr('height',12).attr('y',-10).style('fill',d=>d.color);
+      legend.append('text').attr('x',24).attr('y',0).attr('dominant-baseline','middle').text(d=>d.name);
+    }
+
+    /* ========== 联动更新 ========== */
+    function update(){
+      const showGrouped = document.getElementById('chk-grouped').checked;
+      const showStacked = document.getElementById('chk-stacked').checked;
+      const showLine    = document.getElementById('chk-line').checked;
+
+      const host = d3.select('#my_dataviz');
+      host.selectAll('*').remove();
+
+      if(!showGrouped && !showStacked && !showLine) return;
+
+      let table;
+      try { table = readTable(); }
+      catch (e){ alert('数据格式错误：' + e.message); return; }
+
+      if(showGrouped){
+        const block = host.append('div').attr('class','viz-block').node();
+        d3.select(block).append('h4').attr('class','viz-title').text('分组柱状图');
+        renderGroupedBar(table, block);
+      }
+      if(showStacked){
+        const block = host.append('div').attr('class','viz-block').node();
+        d3.select(block).append('h4').attr('class','viz-title').text('堆叠柱状图');
+        renderStackedBar(table, block);
+      }
+      if(showLine){
+        const block = host.append('div').attr('class','viz-block').node();
+        d3.select(block).append('h4').attr('class','viz-title').text('折线图');
+        renderLine(table, block);
+      }
+    }
+
+    // 事件
+    xs.on('cell-edited', update);
+    d3.selectAll('.checkbox').on('change', update);
+    window.addEventListener('resize', update);
+    // 默认勾上分组柱，方便演示
+    document.getElementById('chk-grouped').checked = true;
+    update();
+  </script>
+</body>
+</html>
