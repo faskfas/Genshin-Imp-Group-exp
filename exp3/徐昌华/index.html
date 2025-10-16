@@ -1,0 +1,448 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <link rel="stylesheet" href="https://unpkg.com/x-data-spreadsheet@1.1.5/dist/xspreadsheet.css" />
+    <script src="https://unpkg.com/x-data-spreadsheet@1.1.5/dist/xspreadsheet.js"></script>
+    <script src="https://unpkg.com/x-data-spreadsheet@1.1.9/dist/locale/zh-cn.js"></script>
+    <script src="https://d3js.org/d3.v6.js"></script>
+</head>
+<body>
+    <div id="xspreadsheet">
+        <input type="checkbox" class="checkbox" value="linechart" /><label>折线图</label>
+    </div>
+    <div id="my_dataviz"></div>
+    <style>
+        #xspreadsheet {
+            width: 400px;
+            height: 500px;
+            padding: 0px;
+            margin: 0px;
+        }
+        #my_dataviz {
+            width: 1200px;
+            height: 900px;
+            padding: 0px;
+            margin: 0px;
+        }
+        .ticktext {
+            font-size: 20;
+            stroke: black;
+            stroke-width: 0.05em;
+        }
+        .line {
+            fill: none;
+            stroke-width: 2.5px;
+        }
+        .chart-container {
+            margin-bottom: 40px;
+        }
+        .chart-title {
+            font-size: 18px;
+            font-weight: bold;
+            text-anchor: middle;
+        }
+    </style>
+    <script>
+        x_spreadsheet.locale("zh-cn");
+        var xs = x_spreadsheet("#xspreadsheet", {
+            mode: 'edit',
+            showToolbar: true,
+            showGrid: true,
+            showContextmenu: true,
+            view: {
+                height: () => document.documentElement.clientHeight,
+                width: () => document.documentElement.clientWidth,
+            },
+            row: {
+                len: 15,
+                height: 25,
+            },
+            col: {
+                len: 8,
+                width: 100,
+                indexWidth: 60,
+                minWidth: 60,
+            },
+            style: {
+                bgcolor: '#ffffff',
+                align: 'left',
+                valign: 'middle',
+                textwrap: false,
+                strike: false,
+                underline: false,
+                color: '#0a0a0a',
+                font: {
+                    name: 'Helvetica',
+                    size: 10,
+                    bold: false,
+                    italic: false,
+                },
+            },
+        })
+        
+        // 设置初值
+        xs.on('cell-edited', update)
+        xs.cellText(0, 1, "计算机").cellText(0, 2, "法学").reRender();
+        xs.cellText(1, 0, "2017")
+            .cellText(1, 1, "23")
+            .cellText(1, 2, "15")
+            .reRender();
+        xs.cellText(2, 0, "2018")
+            .cellText(2, 1, "36")
+            .cellText(2, 2, "26")
+            .reRender();
+        xs.cellText(3, 0, "2019")
+            .cellText(3, 1, "23")
+            .cellText(3, 2, "33")
+            .reRender();
+        xs.cellText(4, 0, "2020")
+            .cellText(4, 1, "22")
+            .cellText(4, 2, "10")
+            .reRender();
+        
+        function getColor(idx) {
+            var palette = [
+                '#5ab1ef', '#ffb980', '#d87a80', '#2ec7c9', '#b6a2de',
+                '#8d98b3', '#e5cf0d', '#97b552', '#95706d', '#dc69aa',
+                '#07a2a4', '#9a7fd1', '#588dd5', '#f5994e', '#c05050',
+                '#59678c', '#c9ab00', '#7eb00a', '#6f5553', '#c14089'
+            ]
+            return palette[idx % palette.length];
+        }
+        
+        function update() {
+            const a = d3.select('.checkbox');
+            if (a.property("checked")) {
+                var data = [];
+                var ytitle = [];
+                var xtitle = [];
+                var col = 0;
+                
+                for (var i = 1; i < 20; i++) {
+                    if (xs.cell(i, 0) === null || xs.cell(i, 0).text === undefined || xs.cell(i, 0).text === "") {
+                        rows = i;
+                        break;
+                    }
+                    data.push([]);
+                    ytitle.push(xs.cell(i, 0).text);
+                }
+                
+                for (var i = 1; i < 20; i++) {
+                    if (xs.cell(0, i) === null || xs.cell(0, i).text === undefined || xs.cell(0, i).text === "") {
+                        col = i;
+                        break;
+                    }
+                    xtitle.push(xs.cell(0, i).text);
+                }
+                
+                for (var i = 1; i < rows; i++) {
+                    for (var j = 1; j < col; j++) {
+                        if (xs.cell(i, j) === null || xs.cell(i, j).text === undefined || isNaN(+xs.cell(i, j).text)) {
+                            console.log(i, j, xs.cell(i, j));
+                            return;
+                        } else {
+                            data[i - 1][j - 1] = +xs.cell(i, j).text;
+                        }
+                    }
+                }
+                
+                window.localStorage.data = data;
+                window.localStorage.xTitle = xtitle;
+                window.localStorage.yTitle = ytitle;
+                console.log(window.localStorage.data)
+                
+                var xTitle = Array.from(window.localStorage.xTitle.split(","));
+                var yTitle = Array.from(window.localStorage.yTitle.split(","));
+                var list_data = window.localStorage.data.split(",");
+                var pos = 0;
+                
+                var data1 = [];
+                for (var i = 0; i < yTitle.length; i++) {
+                    let tmp = [];
+                    for (var j = 0; j < xTitle.length; ++j) {
+                        tmp.push(+list_data[pos++]);
+                    }
+                    data1.push(tmp);
+                }
+                
+                // 准备折线图数据
+                var lineData1 = []; // 图一：计算机和法学院人数变化
+                var lineData2 = []; // 图二：总人数变化
+                
+                for (var i = 0; i < yTitle.length; i++) {
+                    var year = yTitle[i];
+                    var computerValue = data1[i][0]; // 计算机学院数据
+                    var lawValue = data1[i][1]; // 法学院数据
+                    var totalValue = computerValue + lawValue; // 总人数
+                    
+                    lineData1.push({
+                        year: year,
+                        computer: computerValue,
+                        law: lawValue
+                    });
+                    
+                    lineData2.push({
+                        year: year,
+                        total: totalValue
+                    });
+                }
+                
+                console.log("图一数据:", lineData1);
+                console.log("图二数据:", lineData2);
+                
+                const margin = { top: 60, right: 30, bottom: 50, left: 60 },
+                    width = 500 - margin.left - margin.right,
+                    height = 300 - margin.top - margin.bottom;
+                
+                d3.selectAll('svg').remove();
+                const svg = d3
+                    .select("#my_dataviz")
+                    .append("svg")
+                    .attr("width", width * 2 + margin.left + margin.right + 100)
+                    .attr("height", height * 2 + margin.top + margin.bottom + 100);
+                
+                // 图一：计算机和法学院人数变化
+                const chart1 = svg.append("g")
+                    .attr("transform", `translate(${margin.left}, ${margin.top})`)
+                    .attr("class", "chart-container");
+                
+                // 添加图一标题
+                chart1.append("text")
+                    .attr("x", width / 2)
+                    .attr("y", -20)
+                    .attr("class", "chart-title")
+                    .text("计算机与法学院人数变化趋势");
+                
+                // X轴比例尺
+                const xScale1 = d3.scaleBand()
+                    .domain(yTitle)
+                    .range([0, width])
+                    .padding(0.1);
+                
+                // Y轴比例尺
+                const yMax1 = d3.max(lineData1, d => Math.max(d.computer, d.law));
+                const yScale1 = d3.scaleLinear()
+                    .domain([0, yMax1 * 1.1])
+                    .range([height, 0]);
+                
+                // 添加X轴
+                chart1.append("g")
+                    .attr("transform", `translate(0, ${height})`)
+                    .call(d3.axisBottom(xScale1));
+                
+                // 添加Y轴
+                chart1.append("g")
+                    .call(d3.axisLeft(yScale1));
+                
+                // 添加X轴标签
+                chart1.append("text")
+                    .attr("transform", `translate(${width / 2}, ${height + margin.bottom - 10})`)
+                    .style("text-anchor", "middle")
+                    .text("年份");
+                
+                // 添加Y轴标签
+                chart1.append("text")
+                    .attr("transform", "rotate(-90)")
+                    .attr("y", -margin.left + 15)
+                    .attr("x", -height / 2)
+                    .style("text-anchor", "middle")
+                    .text("人数");
+                
+                // 创建折线生成器
+                const lineComputer = d3.line()
+                    .x(d => xScale1(d.year) + xScale1.bandwidth() / 2)
+                    .y(d => yScale1(d.computer));
+                
+                const lineLaw = d3.line()
+                    .x(d => xScale1(d.year) + xScale1.bandwidth() / 2)
+                    .y(d => yScale1(d.law));
+                
+                // 绘制计算机学院折线
+                chart1.append("path")
+                    .datum(lineData1)
+                    .attr("class", "line")
+                    .attr("d", lineComputer)
+                    .style("stroke", getColor(0));
+                
+                // 绘制法学院折线
+                chart1.append("path")
+                    .datum(lineData1)
+                    .attr("class", "line")
+                    .attr("d", lineLaw)
+                    .style("stroke", getColor(1));
+                
+                // 添加计算机学院数据点
+                chart1.selectAll(".dot-computer")
+                    .data(lineData1)
+                    .enter().append("circle")
+                    .attr("class", "dot")
+                    .attr("cx", d => xScale1(d.year) + xScale1.bandwidth() / 2)
+                    .attr("cy", d => yScale1(d.computer))
+                    .attr("r", 4)
+                    .style("fill", getColor(0));
+                
+                // 添加法学院数据点
+                chart1.selectAll(".dot-law")
+                    .data(lineData1)
+                    .enter().append("circle")
+                    .attr("class", "dot")
+                    .attr("cx", d => xScale1(d.year) + xScale1.bandwidth() / 2)
+                    .attr("cy", d => yScale1(d.law))
+                    .attr("r", 4)
+                    .style("fill", getColor(1));
+                
+                // 添加计算机学院数值标签
+                chart1.selectAll(".label-computer")
+                    .data(lineData1)
+                    .enter().append("text")
+                    .attr("x", d => xScale1(d.year) + xScale1.bandwidth() / 2)
+                    .attr("y", d => yScale1(d.computer) - 10)
+                    .attr("text-anchor", "middle")
+                    .style("font-size", "10px")
+                    .text(d => d.computer);
+                
+                // 添加法学院数值标签
+                chart1.selectAll(".label-law")
+                    .data(lineData1)
+                    .enter().append("text")
+                    .attr("x", d => xScale1(d.year) + xScale1.bandwidth() / 2)
+                    .attr("y", d => yScale1(d.law) - 10)
+                    .attr("text-anchor", "middle")
+                    .style("font-size", "10px")
+                    .text(d => d.law);
+                
+                // 添加图例
+                const legend1 = chart1.append("g")
+                    .attr("transform", `translate(${width - 100}, 20)`);
+                
+                legend1.append("rect")
+                    .attr("x", 0)
+                    .attr("y", 0)
+                    .attr("width", 12)
+                    .attr("height", 12)
+                    .style("fill", getColor(0));
+                
+                legend1.append("text")
+                    .attr("x", 20)
+                    .attr("y", 10)
+                    .text("计算机学院")
+                    .style("font-size", "12px");
+                
+                legend1.append("rect")
+                    .attr("x", 0)
+                    .attr("y", 20)
+                    .attr("width", 12)
+                    .attr("height", 12)
+                    .style("fill", getColor(1));
+                
+                legend1.append("text")
+                    .attr("x", 20)
+                    .attr("y", 30)
+                    .text("法学院")
+                    .style("font-size", "12px");
+                
+                // 图二：总人数变化
+                const chart2 = svg.append("g")
+                    .attr("transform", `translate(${width + margin.left + 50}, ${margin.top})`)
+                    .attr("class", "chart-container");
+                
+                // 添加图二标题
+                chart2.append("text")
+                    .attr("x", width / 2)
+                    .attr("y", -20)
+                    .attr("class", "chart-title")
+                    .text("总人数变化趋势");
+                
+                // X轴比例尺
+                const xScale2 = d3.scaleBand()
+                    .domain(yTitle)
+                    .range([0, width])
+                    .padding(0.1);
+                
+                // Y轴比例尺
+                const yMax2 = d3.max(lineData2, d => d.total);
+                const yScale2 = d3.scaleLinear()
+                    .domain([0, yMax2 * 1.1])
+                    .range([height, 0]);
+                
+                // 添加X轴
+                chart2.append("g")
+                    .attr("transform", `translate(0, ${height})`)
+                    .call(d3.axisBottom(xScale2));
+                
+                // 添加Y轴
+                chart2.append("g")
+                    .call(d3.axisLeft(yScale2));
+                
+                // 添加X轴标签
+                chart2.append("text")
+                    .attr("transform", `translate(${width / 2}, ${height + margin.bottom - 10})`)
+                    .style("text-anchor", "middle")
+                    .text("年份");
+                
+                // 添加Y轴标签
+                chart2.append("text")
+                    .attr("transform", "rotate(-90)")
+                    .attr("y", -margin.left + 15)
+                    .attr("x", -height / 2)
+                    .style("text-anchor", "middle")
+                    .text("总人数");
+                
+                // 创建折线生成器
+                const lineTotal = d3.line()
+                    .x(d => xScale2(d.year) + xScale2.bandwidth() / 2)
+                    .y(d => yScale2(d.total));
+                
+                // 绘制总人数折线
+                chart2.append("path")
+                    .datum(lineData2)
+                    .attr("class", "line")
+                    .attr("d", lineTotal)
+                    .style("stroke", getColor(2));
+                
+                // 添加总人数数据点
+                chart2.selectAll(".dot-total")
+                    .data(lineData2)
+                    .enter().append("circle")
+                    .attr("class", "dot")
+                    .attr("cx", d => xScale2(d.year) + xScale2.bandwidth() / 2)
+                    .attr("cy", d => yScale2(d.total))
+                    .attr("r", 4)
+                    .style("fill", getColor(2));
+                
+                // 添加总人数数值标签
+                chart2.selectAll(".label-total")
+                    .data(lineData2)
+                    .enter().append("text")
+                    .attr("x", d => xScale2(d.year) + xScale2.bandwidth() / 2)
+                    .attr("y", d => yScale2(d.total) - 10)
+                    .attr("text-anchor", "middle")
+                    .style("font-size", "10px")
+                    .text(d => d.total);
+                
+                // 添加图例
+                const legend2 = chart2.append("g")
+                    .attr("transform", `translate(${width - 80}, 20)`);
+                
+                legend2.append("rect")
+                    .attr("x", 0)
+                    .attr("y", 0)
+                    .attr("width", 12)
+                    .attr("height", 12)
+                    .style("fill", getColor(2));
+                
+                legend2.append("text")
+                    .attr("x", 20)
+                    .attr("y", 10)
+                    .text("总人数")
+                    .style("font-size", "12px");
+                
+            } else {
+                d3.selectAll('svg').remove();
+            }
+        }
+        
+        d3.selectAll(".checkbox").on("change", update);
+    </script>
+</body>
+</html>
