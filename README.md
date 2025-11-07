@@ -35,3 +35,11 @@ git push origin main
  ## 实验3：电子表格实践I
 - Add a new vis function based on the open source spreadsheet 
   - 实验日期：2025.10.10
+ 
+ ## 实验4：BERT环境配置
+- 为远程服务器配置微调BERT的环境（小组实验） 
+  - 实验日期：2025.10.31
+ 
+ ## 实验5：BERT实践
+- 使用配置好的远程服务器对BERT进行微调 
+  - 实验日期：2025.11.7
