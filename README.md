@@ -43,3 +43,7 @@ git push origin main
  ## 实验5：BERT实践
 - 使用配置好的远程服务器对BERT进行微调 
   - 实验日期：2025.11.7
+ 
+ ## 实验6：Canis/Cast/Libra 实践
+- 从 Canis/Cast/Libra 这三个工具中，任选其一完成实践
+  - 实验日期：2025.11.14
