@@ -1,0 +1,450 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Libra 交互式可视化实践</title>
+    <script src="https://d3js.org/d3.v7.min.js"></script>
+    <!-- Libra 库使用 ES 模块格式，需要使用 type="module" -->
+    <script type="module">
+        // 优先加载 libra.min.js（压缩版本），如果失败则加载 libra.js
+        const libraPaths = [
+            'https://cdn.jsdelivr.net/gh/Ideas-Laboratory/Libra@main/dist/libra.min.js',
+            'https://cdn.jsdelivr.net/gh/Ideas-Laboratory/Libra@main/dist/libra.js'
+        ];
+        
+        let currentIndex = 0;
+        async function loadLibra() {
+            if (currentIndex >= libraPaths.length) {
+                console.error('Libra 库加载失败！');
+                window.libraLoaded = false;
+                window.dispatchEvent(new Event('libraLoadComplete'));
+                return;
+            }
+            
+            try {
+                // 使用动态 import 加载 ES 模块
+                const libraModule = await import(libraPaths[currentIndex]);
+                // 将模块导出到全局对象
+                window.Libra = libraModule.default || libraModule;
+                console.log('Libra 库加载成功：' + libraPaths[currentIndex]);
+                window.libraLoaded = true;
+                window.dispatchEvent(new Event('libraLoadComplete'));
+            } catch (error) {
+                console.warn('加载失败，尝试下一个...', error);
+                currentIndex++;
+                loadLibra();
+            }
+        }
+        loadLibra();
+    </script>
+    <style>
+        * {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+        }
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', Arial, sans-serif;
+            background: #f5f5f5;
+            padding: 20px 15px;
+            min-height: 100vh;
+        }
+        .container {
+            max-width: 1000px;
+            margin: 0 auto;
+            background: white;
+            padding: 20px;
+        }
+        h1 {
+            color: #1a1a1a;
+            text-align: center;
+            margin-bottom: 4px;
+            font-size: 24px;
+            font-weight: 500;
+        }
+        .subtitle {
+            text-align: center;
+            color: #666;
+            margin-bottom: 20px;
+            font-size: 13px;
+            font-weight: 400;
+        }
+        #visualization {
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            width: 100%;
+            min-height: 500px;
+            margin: 0 auto;
+        }
+        #visualization svg {
+            display: block;
+            margin: 0 auto;
+        }
+        .info-panel {
+            margin-top: 20px;
+            padding: 12px;
+            background: #fafafa;
+            border-top: 1px solid #e0e0e0;
+        }
+        .info-panel h3 {
+            margin-bottom: 8px;
+            color: #1a1a1a;
+            font-size: 14px;
+            font-weight: 500;
+        }
+        .info-panel ul {
+            list-style: none;
+            padding: 0;
+        }
+        .info-panel li {
+            margin: 4px 0;
+            color: #666;
+            font-size: 13px;
+            line-height: 1.5;
+        }
+        .info-panel li strong {
+            color: #1a1a1a;
+            font-weight: 500;
+        }
+        .tooltip {
+            position: absolute;
+            background: #1a1a1a;
+            color: white;
+            padding: 10px 14px;
+            border-radius: 4px;
+            pointer-events: none;
+            font-size: 12px;
+            z-index: 1000;
+            line-height: 1.5;
+            max-width: 200px;
+        }
+        .tooltip strong {
+            font-weight: 500;
+        }
+        @media (max-width: 768px) {
+            body {
+                padding: 15px 10px;
+            }
+            .container {
+                padding: 15px;
+            }
+            #visualization {
+                min-height: 400px;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>散点图可视化</h1>
+        <p class="subtitle">Libra 交互式可视化</p>
+        
+        <div id="visualization"></div>
+        
+        <div class="info-panel">
+            <h3>交互说明</h3>
+            <ul>
+                <li><strong>悬停</strong>：显示数据点详细信息</li>
+                <li><strong>点击</strong>：高亮同类别所有数据点</li>
+            </ul>
+        </div>
+    </div>
+
+    <script>
+        // 静态可视化配置和全局变量
+        const globalThis = window;
+
+        // 配置参数
+        globalThis.WIDTH = 800;
+        globalThis.HEIGHT = 500;
+        globalThis.MARGIN = { top: 40, right: 40, bottom: 60, left: 60 };
+
+        // 数据字段
+        globalThis.FIELD_X = 'x';
+        globalThis.FIELD_Y = 'y';
+        globalThis.FIELD_COLOR = 'category';
+        globalThis.FIELD_LABEL = 'label';
+
+        // 颜色映射
+        globalThis.color = d3.scaleOrdinal()
+            .domain(['A', 'B', 'C', 'D'])
+            .range(['#FF6B6B', '#4ECDC4', '#45B7D1', '#FFA07A']);
+
+        // 生成示例数据
+        function generateSampleData() {
+            const categories = ['A', 'B', 'C', 'D'];
+            const data = [];
+            
+            categories.forEach((category, catIdx) => {
+                for (let i = 0; i < 30; i++) {
+                    // 为每个类别生成不同分布的数据点
+                    const baseX = catIdx * 200 + 100;
+                    const baseY = 100 + catIdx * 100;
+                    
+                    data.push({
+                        x: baseX + (Math.random() - 0.5) * 150,
+                        y: baseY + (Math.random() - 0.5) * 150,
+                        category: category,
+                        label: `${category}-${i + 1}`,
+                        value: Math.floor(Math.random() * 100),
+                        description: `这是类别 ${category} 的第 ${i + 1} 个数据点，值为 ${Math.floor(Math.random() * 100)}`
+                    });
+                }
+            });
+            
+            return data;
+        }
+
+        // 加载数据
+        globalThis.loadData = async function() {
+            globalThis.data = generateSampleData();
+            
+            // 设置坐标轴范围
+            globalThis.x = d3.scaleLinear()
+                .domain(d3.extent(globalThis.data, d => d[globalThis.FIELD_X]))
+                .nice()
+                .range([0, globalThis.WIDTH - globalThis.MARGIN.left - globalThis.MARGIN.right]);
+            
+            globalThis.y = d3.scaleLinear()
+                .domain(d3.extent(globalThis.data, d => d[globalThis.FIELD_Y]))
+                .nice()
+                .range([globalThis.HEIGHT - globalThis.MARGIN.top - globalThis.MARGIN.bottom, 0]);
+        };
+
+        // 渲染静态可视化（坐标轴、标题等）
+        globalThis.renderStaticVisualization = function() {
+            const svg = d3.select("#visualization")
+                .append("svg")
+                .attr("width", globalThis.WIDTH)
+                .attr("height", globalThis.HEIGHT)
+                .style("display", "block")
+                .style("margin", "0 auto");
+            
+            // 创建主图形容器
+            const g = svg.append("g")
+                .attr("transform", `translate(${globalThis.MARGIN.left}, ${globalThis.MARGIN.top})`);
+            
+            // 添加 X 轴
+            g.append("g")
+                .attr("transform", `translate(0, ${globalThis.HEIGHT - globalThis.MARGIN.top - globalThis.MARGIN.bottom})`)
+                .call(d3.axisBottom(globalThis.x))
+                .append("text")
+                .attr("x", (globalThis.WIDTH - globalThis.MARGIN.left - globalThis.MARGIN.right) / 2)
+                .attr("y", 40)
+                .attr("fill", "black")
+                .style("text-anchor", "middle")
+                .text("X 坐标");
+            
+            // 添加 Y 轴
+            g.append("g")
+                .call(d3.axisLeft(globalThis.y))
+                .append("text")
+                .attr("transform", "rotate(-90)")
+                .attr("y", -40)
+                .attr("x", -(globalThis.HEIGHT - globalThis.MARGIN.top - globalThis.MARGIN.bottom) / 2)
+                .attr("fill", "black")
+                .style("text-anchor", "middle")
+                .text("Y 坐标");
+            
+            // 添加图例
+            const categories = ['A', 'B', 'C', 'D'];
+            const legendWidth = 80;
+            const legendHeight = categories.length * 20;
+            const legendX = globalThis.WIDTH - globalThis.MARGIN.left - globalThis.MARGIN.right - legendWidth - 10;
+            const legendY = globalThis.HEIGHT - globalThis.MARGIN.top - globalThis.MARGIN.bottom - legendHeight - 10;
+            
+            const legend = g.append("g")
+                .attr("transform", `translate(${legendX}, ${legendY})`);
+            
+            categories.forEach((cat, i) => {
+                const legendItem = legend.append("g")
+                    .attr("transform", `translate(0, ${i * 20})`);
+                
+                legendItem.append("circle")
+                    .attr("r", 4)
+                    .attr("fill", globalThis.color(cat));
+                
+                legendItem.append("text")
+                    .attr("x", 12)
+                    .attr("y", 4)
+                    .style("font-size", "11px")
+                    .style("fill", "#666")
+                    .text(cat);
+            });
+        };
+
+        // 主交互逻辑
+        async function main() {
+            // 检查 Libra 库是否加载
+            if (typeof Libra === 'undefined') {
+                console.error('Libra 库未加载！请确保 Libra 库已正确引入。');
+                alert('Libra 库未加载！\n\n请从以下方式获取 Libra 库：\n1. 从 GitHub 仓库下载 libra-core.umd.js\n2. 将文件放在 lib/ 目录下\n3. 取消 HTML 中本地文件的注释');
+                return;
+            }
+            
+            await globalThis.loadData();
+            globalThis.renderStaticVisualization();
+            const mainLayer = renderMainVisualization();
+            await mountInteraction(mainLayer);
+        }
+
+        function renderMainVisualization() {
+            // 查找 SVG 元素
+            const svg = d3.select("#visualization svg");
+            
+            // 创建主图层
+            const mainLayer = Libra.Layer.initialize("D3Layer", {
+                name: "mainLayer",
+                width: globalThis.WIDTH - globalThis.MARGIN.left - globalThis.MARGIN.right,
+                height: globalThis.HEIGHT - globalThis.MARGIN.top - globalThis.MARGIN.bottom,
+                offset: { x: globalThis.MARGIN.left, y: globalThis.MARGIN.top },
+                container: svg.node(),
+            });
+            
+            const g = d3.select(mainLayer.getGraphic());
+            
+            // 绘制数据点
+            g.selectAll("circle")
+                .data(globalThis.data)
+                .join("circle")
+                .attr("class", "mark")
+                .attr("cx", (d) => globalThis.x(d[globalThis.FIELD_X]))
+                .attr("cy", (d) => globalThis.y(d[globalThis.FIELD_Y]))
+                .attr("fill", "lightgray")
+                .attr("fill-opacity", 0.7)
+                .attr("stroke", (d) => globalThis.color(d[globalThis.FIELD_COLOR]))
+                .attr("stroke-width", 1.5)
+                .attr("r", 5);
+            
+            return mainLayer;
+        }
+
+        async function mountInteraction(layer) {
+            // 点击高亮功能
+            Libra.Interaction.build({
+                inherit: "ClickInstrument",
+                layers: [layer],
+                remove: [
+                    {
+                        find: "SelectionTransformer",
+                    },
+                ],
+                insert: [
+                    {
+                        find: "SelectionService",
+                        flow: [
+                            {
+                                comp: "FilterService",
+                                sharedVar: {
+                                    fields: [globalThis.FIELD_COLOR],
+                                },
+                            },
+                            {
+                                comp: "SelectionTransformer",
+                                layer: layer.getLayerFromQueue("selectionLayer"),
+                            },
+                        ],
+                    },
+                ],
+                sharedVar: {
+                    highlightColor: (d) => globalThis.color(d[globalThis.FIELD_COLOR]),
+                },
+            });
+            
+            // 悬停展示信息功能 - 使用 D3 实现 tooltip
+            const tooltip = d3.select("body")
+                .append("div")
+                .attr("class", "tooltip")
+                .style("opacity", 0)
+                .style("position", "absolute")
+                .style("background", "rgba(0, 0, 0, 0.9)")
+                .style("color", "white")
+                .style("padding", "10px")
+                .style("border-radius", "5px")
+                .style("pointer-events", "none")
+                .style("font-size", "12px")
+                .style("z-index", "1000")
+                .style("box-shadow", "0 2px 10px rgba(0,0,0,0.3)");
+            
+            // 使用 Libra 的 HoverInstrument，但自定义 tooltip 显示
+            const g = d3.select(layer.getGraphic());
+            g.selectAll("circle.mark")
+                .on("mouseover", function(event, d) {
+                    tooltip.transition()
+                        .duration(200)
+                        .style("opacity", 0.9);
+                    tooltip.html(`
+                        <div style="line-height: 1.6;">
+                            <strong>标签:</strong> ${d[globalThis.FIELD_LABEL]}<br/>
+                            <strong>类别:</strong> ${d[globalThis.FIELD_COLOR]}<br/>
+                            <strong>X值:</strong> ${d[globalThis.FIELD_X].toFixed(2)}<br/>
+                            <strong>Y值:</strong> ${d[globalThis.FIELD_Y].toFixed(2)}<br/>
+                            <strong>数值:</strong> ${d.value}
+                        </div>
+                    `)
+                        .style("left", (event.pageX + 10) + "px")
+                        .style("top", (event.pageY - 10) + "px");
+                })
+                .on("mouseout", function() {
+                    tooltip.transition()
+                        .duration(200)
+                        .style("opacity", 0);
+                });
+            
+            // 仍然使用 Libra 的 HoverInstrument 来处理其他交互逻辑
+            Libra.Interaction.build({
+                inherit: "HoverInstrument",
+                layers: [layer],
+            });
+            
+            // 创建历史记录跟踪（支持撤销/重做）
+            await Libra.createHistoryTrrack();
+        }
+
+        // 启动主函数 - 等待 Libra 库加载完成
+        function initVisualization() {
+            // 检查 Libra 是否已加载
+            if (typeof Libra === 'undefined' || !window.libraLoaded) {
+                // 等待 Libra 加载完成事件
+                window.addEventListener('libraLoadComplete', function() {
+                    if (window.libraLoaded && typeof Libra !== 'undefined') {
+                        startMain();
+                    } else {
+                        console.error('Libra 库加载失败，无法初始化可视化');
+                    }
+                }, { once: true });
+                
+                // 如果已经加载完成，直接执行
+                if (window.libraLoaded && typeof Libra !== 'undefined') {
+                    startMain();
+                }
+                return;
+            }
+            
+            startMain();
+        }
+        
+        function startMain() {
+            // Libra 已加载，执行主函数
+            main().catch((error) => {
+                console.error('程序执行出错:', error);
+                if (error.message && error.message.includes('Libra')) {
+                    console.error('Libra 库未正确加载，请检查：');
+                    console.error('1. 网络连接是否正常');
+                    console.error('2. CDN 是否可访问');
+                }
+            });
+        }
+        
+        // 页面加载完成后初始化
+        if (document.readyState === 'loading') {
+            document.addEventListener('DOMContentLoaded', initVisualization);
+        } else {
+            // 如果 DOM 已加载，延迟一点确保脚本都加载完成
+            setTimeout(initVisualization, 100);
+        }
+    </script>
+</body>
+</html>
