@@ -1,0 +1,153 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <title>Canis Grammar Simulator</title>
+    <style>
+        body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; padding: 40px; background: #f4f4f4; }
+        .container { display: flex; gap: 20px; }
+        .panel { background: white; padding: 20px; border-radius: 8px; box-shadow: 0 2px 5px rgba(0,0,0,0.1); }
+        #chart-area { width: 400px; height: 400px; border: 1px solid #eee; }
+        textarea { width: 300px; height: 300px; font-family: monospace; font-size: 14px; border: 1px solid #ddd; background: #2d2d2d; color: #ccc; padding: 10px;}
+        h3 { margin-top: 0; color: #333; }
+        button { background: #4a90e2; color: white; border: none; padding: 10px 20px; border-radius: 4px; cursor: pointer; margin-top: 10px; }
+        button:hover { background: #357abd; }
+        
+        /* 基础图元样式 */
+        circle { transition: all 0.5s ease; opacity: 0; }
+    </style>
+</head>
+<body>
+
+    <h2>Canis 实践：声明式动画编译器模拟</h2>
+    <p>参考: <cite>Canis: A High-level Language for Data-Driven Chart Animations (EuroVis 2020)</cite></p>
+
+    <div class="container">
+        <div class="panel">
+            <h3>1. Output Chart (dSVG Render)</h3>
+            <svg id="chart-area" viewBox="0 0 400 400"></svg>
+        </div>
+
+        <div class="panel">
+            <h3>2. Canis Specification (JSON)</h3>
+            <p>修改下方的配置来控制动画逻辑：</p>
+            <textarea id="canis-spec">
+{
+  "selector": "circle",
+  "grouping": "color", 
+  "animation": {
+    "type": "fade",
+    "duration": 800,
+    "delayBetweenGroups": 500
+  }
+}
+            </textarea>
+            <br>
+            <button onclick="runCompiler()">Run Compiler & Animate</button>
+        </div>
+    </div>
+
+    <script>
+        // === 步骤 1: 模拟 dSVG 数据输入 ===
+        // 生成模拟数据：3个类别，每个类别20个点
+        const rawData = [];
+        const categories = ['A', 'B', 'C'];
+        const colors = { 'A': '#ff6b6b', 'B': '#4ecdc4', 'C': '#feca57' };
+
+        for(let i=0; i<60; i++) {
+            const cat = categories[i % 3];
+            rawData.push({
+                id: i,
+                category: cat,
+                x: Math.random() * 300 + 50,
+                y: Math.random() * 300 + 50,
+                color: colors[cat]
+            });
+        }
+
+        const svg = document.getElementById('chart-area');
+
+        // 渲染静态 dSVG (初始状态不可见)
+        function initDSVG() {
+            svg.innerHTML = '';
+            rawData.forEach(d => {
+                const circle = document.createElementNS("http://www.w3.org/2000/svg", "circle");
+                circle.setAttribute("cx", d.x);
+                circle.setAttribute("cy", d.y);
+                circle.setAttribute("r", 6);
+                circle.setAttribute("fill", d.color);
+                // 绑定数据属性，模拟 Canis 中的 data-enriched SVG
+                circle.setAttribute("data-category", d.category); 
+                circle.setAttribute("class", "mark-unit");
+                // 初始状态
+                circle.style.opacity = 0; 
+                circle.style.transform = "scale(0)";
+                svg.appendChild(circle);
+            });
+        }
+
+        // === 步骤 2: Canis 编译器模拟核心 (The Compiler) ===
+        // 对应论文中的 "Build-Bind-Evaluate" 过程
+        function runCompiler() {
+            // 重置画布
+            initDSVG();
+            
+            // 1. 获取 Spec (规范)
+            let spec;
+            try {
+                spec = JSON.parse(document.getElementById('canis-spec').value);
+            } catch(e) { alert("JSON 格式错误"); return; }
+
+            const circles = Array.from(document.querySelectorAll('.mark-unit'));
+
+            // 2. Partition (划分阶段): 根据 data-category 分组
+            // 对应论文 Abstract 中的 "partition the selected marks into mark units"
+            let groups = {};
+            
+            if (spec.grouping === 'color') {
+                circles.forEach(circle => {
+                    const key = circle.getAttribute('data-category');
+                    if (!groups[key]) groups[key] = [];
+                    groups[key].push(circle);
+                });
+            } else {
+                // 如果不分组，整体为一个组
+                groups['all'] = circles;
+            }
+
+            // 3. Evaluate (评估阶段): 计算时间轴
+            // 对应论文 Compiler 图示中的 "evaluate phase computes the starting time"
+            const groupKeys = Object.keys(groups);
+            
+            groupKeys.forEach((key, groupIndex) => {
+                const elements = groups[key];
+                const startTime = groupIndex * spec.animation.delayBetweenGroups;
+
+                elements.forEach((el, elIndex) => {
+                    // 模拟 Lottie 渲染或 CSS 执行
+                    setTimeout(() => {
+                        applyAnimation(el, spec.animation.type, spec.animation.duration);
+                    }, startTime + (elIndex * 20)); // 组内微小延迟让视觉更自然
+                });
+            });
+        }
+
+        // 辅助函数：应用视觉效果
+        function applyAnimation(element, type, duration) {
+            element.style.transition = `all ${duration}ms cubic-bezier(0.25, 0.8, 0.25, 1)`;
+            element.style.opacity = 1;
+            
+            if (type === 'fade') {
+                element.style.transform = "scale(1)";
+            } else if (type === 'grow') {
+                // 模拟 "wheel" 或 "wipe" 的一种简化形式
+                element.style.transform = "scale(1.5)";
+                setTimeout(() => element.style.transform = "scale(1)", duration);
+            }
+        }
+
+        // 初始化
+        initDSVG();
+    </script>
+</body>
+</html>
